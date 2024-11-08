@@ -1,7 +1,7 @@
 ﻿using System.Text.RegularExpressions;
 
 SessionResults results = new(0, 0, 0, new Top10Record[10]);
-SearchFlags state = new(true, false, false, false, false, "\\.cs$", null);
+SearchFlags state = new(true, false, false, false, false, "\\.cs$", null, Directory.GetCurrentDirectory());
 
 var rxFileEnum = CreateRxFileEnum(state.EnumFileFilter, state.IsFileEnumCaseSensitive);
 var rxPathExclide = (Regex?)null;
@@ -30,6 +30,7 @@ void PrintMenu()
     Console.WriteLine("5/z  azzera conteggi per ogni sessione");
     Console.WriteLine("6/m  impostazioni maiuscole/minuscole");
     Console.WriteLine("7/e  escludi cartelle");
+    Console.WriteLine("8/p  override percorso");
     Console.WriteLine("0    esegui conteggio");
     Console.WriteLine("q    esci");
 }
@@ -142,6 +143,15 @@ void ChoiceExcludePath()
         rxPathExclide = CreateRxFileEnum(state.FolderExclude, state.IsFileEnumCaseSensitive);
 }
 
+void ChoiceOverridePath()
+{
+    Console.WriteLine($"Percorso attuale: {state.EnumPath}");
+    PrintPrompt();
+    var pathResp = Console.ReadLine();
+    if (false == string.IsNullOrWhiteSpace(pathResp))
+        state.EnumPath = pathResp;
+}
+
 void Execute()
 {
     Console.WriteLine("Eseguo il conteggio con il filtro /{0}/{3}, ricorsività {1}, azzeramento righe globali {2}",
@@ -150,8 +160,7 @@ void Execute()
     if (state.IsRigheGlobali)
         results = new();
 
-    var dirEnum = "e:\\git\\zodiac-garavot2"; // Directory.GetCurrentDirectory();
-    var fileEnum = Directory.EnumerateFiles(dirEnum, "*",
+    var fileEnum = Directory.EnumerateFiles(state.EnumPath, "*",
         state.IsEnumeraFileRicorsione ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly);
 
     var readFileErr = new LinkedList<string>();
@@ -256,6 +265,7 @@ bool TryChoice()
         case "5": case "z": case "Z": ChoiceResetState(); break;
         case "6": case "m": case "M": ChoiceCaseSensitivity(); break;
         case "7": case "e": case "E": ChoiceExcludePath(); break;
+        case "8": case "p": case "P": ChoiceOverridePath(); break;
         case "0": Execute(); break;
         case "q": break;
         default: return false;
@@ -271,6 +281,7 @@ record struct SearchFlags(
     bool IsRigheGlobali,
     bool IsFileEnumCaseSensitive,
     string EnumFileFilter,
-    string? FolderExclude);
+    string? FolderExclude,
+    string EnumPath);
 record struct SessionResults(int TotFoundLines, int TotEnumeratedFiles, int FileCount, Top10Record[] Top10);
 record struct Top10Record(string FileNamePath, int LineCount);
