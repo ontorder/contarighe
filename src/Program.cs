@@ -1,38 +1,200 @@
-﻿using System.Text.RegularExpressions;
+﻿using contarighe;
+using System.Diagnostics;
+using System.Text.RegularExpressions;
+using Windows.Win32.System.Console;
 
 SessionResults results = new(0, 0, 0, new Top10Record[10]);
 SearchFlags state = new(true, false, false, false, false, "\\.cs$", null, Directory.GetCurrentDirectory());
 
 var rxFileEnum = CreateRxFileEnum(state.EnumFileFilter, state.IsFileEnumCaseSensitive);
 var rxPathExclide = (Regex?)null;
-string? menuChoiceResp;
+string? menuChoiceResp = "";
 
-var realChoice = true;
+Console.CursorVisible = false;
+var consoleHandle = Windows.Win32.PInvoke.GetStdHandle_SafeHandle(STD_HANDLE.STD_INPUT_HANDLE);
+var scmSucc = Windows.Win32.PInvoke.SetConsoleMode(consoleHandle, CONSOLE_MODE.ENABLE_INSERT_MODE |
+    CONSOLE_MODE.ENABLE_PROCESSED_INPUT | CONSOLE_MODE.ENABLE_VIRTUAL_TERMINAL_INPUT | CONSOLE_MODE.ENABLE_WINDOW_INPUT);
+if (scmSucc == false) throw new Exception();
+//var gcmSucc = Windows.Win32.PInvoke.GetConsoleMode(consoleHandle, out var consoleMode);
+
+CursorState MoveCursor_State = new(0, 1, 10);
+
+var printMenu = true;
 do
 {
-    if (realChoice) PrintMenu();
-    PrintPrompt();
-    menuChoiceResp = Console.ReadLine();
-    realChoice = TryChoice();
-    if (realChoice == false) Console.SetCursorPosition(0, Console.CursorTop - 1);
+    if (printMenu)
+    {
+        PrintMenu();
+        printMenu = false;
+        MoveCursor(CursorDirection.Init);
+    }
+
+    var kp = ReadInput();
+    menuChoiceResp = kp.Input.ToString();
+
+    switch (kp.Meta)
+    {
+        case ConsoleKey.DownArrow: MoveCursor(CursorDirection.Down); break;
+        case ConsoleKey.UpArrow: MoveCursor(CursorDirection.Up); break;
+        case ConsoleKey.PageDown: MoveCursor(CursorDirection.PageDown); break;
+        case ConsoleKey.PageUp: MoveCursor(CursorDirection.PageUp); break;
+        case ConsoleKey.Enter: TryChoice(MapChoiceToAction(MoveCursor_State.Y, menuChoiceResp)); break;
+        case ConsoleKey.Home: MoveCursor(CursorDirection.Start); break;
+        case ConsoleKey.End: MoveCursor(CursorDirection.End); break;
+    }
 }
 while (menuChoiceResp != "q");
+
+MenuAction MapChoiceToAction(int cursorY, string menuChoiceResp)
+{
+    switch (null)
+    {
+        case 1: case "1": case "f": case "F": return MenuAction.SetFilter;
+        case 2: case "2": case "r": case "R": return MenuAction.SetRecursion;
+        case 3: case "3": case "c": case "C": return MenuAction.SetComments;
+        case 4: case "4": case "v": case "V": return MenuAction.SetEmptyLines;
+        case 5: case "5": case "z": case "Z": return MenuAction.ResetState;
+        case 6: case "6": case "m": case "M": return MenuAction.SetCaseSensitivity;
+        case 7: case "7": case "e": case "E": return MenuAction.SetExcludePath;
+        case 8: case "8": case "p": case "P": return MenuAction.SetOverridePath;
+        case 0: case "0": return MenuAction.Execute;
+        case "q": return MenuAction.Exit;
+        default: return MenuAction.None;
+    }
+}
+
+void MoveCursor(CursorDirection direction)
+{
+    switch (direction)
+    {
+        case CursorDirection.Down:
+            if (MoveCursor_State.Y == MoveCursor_State.MaxY) break;
+            Console.Write($"{Vt100.AbsolutePosition(MoveCursor_State.X, MoveCursor_State.Y)}");
+            Console.Write("  ");
+            ++MoveCursor_State.Y;
+            Console.Write($"{Vt100.AbsolutePosition(MoveCursor_State.X, MoveCursor_State.Y)}");
+            Console.Write("->");
+            break;
+
+        case CursorDirection.End:
+            if (MoveCursor_State.Y == MoveCursor_State.MaxY) break;
+            Console.Write($"{Vt100.AbsolutePosition(MoveCursor_State.X, MoveCursor_State.Y)}");
+            Console.Write("  ");
+            MoveCursor_State.Y = MoveCursor_State.MaxY;
+            Console.Write($"{Vt100.AbsolutePosition(MoveCursor_State.X, MoveCursor_State.Y)}");
+            Console.Write("->");
+            break;
+
+        case CursorDirection.Init:
+            Console.Write($"{Vt100.AbsolutePosition(MoveCursor_State.X, MoveCursor_State.Y)}");
+            Console.Write("->");
+            break;
+
+        case CursorDirection.PageDown:
+            if (MoveCursor_State.Y == MoveCursor_State.MaxY) break;
+            var pageDownY = Math.Min(MoveCursor_State.Y + 4, MoveCursor_State.MaxY);
+            Console.Write($"{Vt100.AbsolutePosition(MoveCursor_State.X, MoveCursor_State.Y)}");
+            Console.Write("  ");
+            MoveCursor_State.Y = pageDownY;
+            Console.Write($"{Vt100.AbsolutePosition(MoveCursor_State.X, MoveCursor_State.Y)}");
+            Console.Write("->");
+            break;
+
+        case CursorDirection.PageUp:
+            if (MoveCursor_State.Y == 1) break;
+            var pageUpY = Math.Max(MoveCursor_State.Y - 4, 1);
+            Console.Write($"{Vt100.AbsolutePosition(MoveCursor_State.X, MoveCursor_State.Y)}");
+            Console.Write("  ");
+            MoveCursor_State.Y = pageUpY;
+            Console.Write($"{Vt100.AbsolutePosition(MoveCursor_State.X, MoveCursor_State.Y)}");
+            Console.Write("->");
+            break;
+
+        case CursorDirection.Start:
+            if (MoveCursor_State.Y == 1) break;
+            Console.Write($"{Vt100.AbsolutePosition(MoveCursor_State.X, MoveCursor_State.Y)}");
+            Console.Write("  ");
+            MoveCursor_State.Y = 1;
+            Console.Write($"{Vt100.AbsolutePosition(MoveCursor_State.X, MoveCursor_State.Y)}");
+            Console.Write("->");
+            break;
+
+        case CursorDirection.Up:
+            if (MoveCursor_State.Y == 1) break;
+            Console.Write($"{Vt100.AbsolutePosition(MoveCursor_State.X, MoveCursor_State.Y)}");
+            Console.Write("  ");
+            --MoveCursor_State.Y;
+            Console.Write($"{Vt100.AbsolutePosition(MoveCursor_State.X, MoveCursor_State.Y)}");
+            Console.Write("->");
+            break;
+    }
+}
+
+StdinValue ReadInput()
+{
+    var state = ReadState.Initial;
+    StdinValue? parsed = null;
+
+    do
+    {
+        // BUG se premo escape finisce in VtEscape e non esce; dovrei considerare lunghezza buffer?
+        var kp = Console.ReadKey(true);
+        switch (state)
+        {
+            case ReadState.Initial:
+                if (kp.KeyChar == '\x1b')
+                {
+                    state = ReadState.VtEscape;
+                }
+                else
+                {
+                    parsed = new(false, kp.KeyChar, 0);
+                }
+                break;
+
+            case ReadState.VtEscape:
+                state = kp.KeyChar switch
+                {
+                    '[' => ReadState.VtBracket,
+                    _ => ReadState.VtNonBracket,
+                };
+                break;
+
+            case ReadState.VtBracket:
+                state = ReadState.Initial;
+                parsed = kp.KeyChar switch
+                {
+                    'A' => new(true, default, ConsoleKey.UpArrow),
+                    'B' => new(true, default, ConsoleKey.DownArrow),
+                    'C' => new(true, default, ConsoleKey.RightArrow),
+                    'D' => new(true, default, ConsoleKey.LeftArrow),
+                    '6' => new(true, default, ConsoleKey.PageDown), // TODO 6 ~
+                    '5' => new(true, default, ConsoleKey.PageUp), // TODO 5 ~
+                    'H' => new(true, default, ConsoleKey.Home),
+                    'F' => new(true, default, ConsoleKey.End),
+                    _ => throw new System.Diagnostics.UnreachableException(),
+                };
+                break;
+        }
+    }
+    while (parsed == null);
+    return parsed.Value;
+}
 
 void PrintPrompt() => Console.Write(": ");
 
 void PrintMenu()
 {
-    Console.WriteLine(Environment.NewLine);
-    Console.WriteLine("1/f  cambia filtro");
-    Console.WriteLine("2/r  impostazioni ricorsività");
-    Console.WriteLine("3/c  conteggia commenti");
-    Console.WriteLine("4/v  filtra righe vuote");
-    Console.WriteLine("5/z  azzera conteggi per ogni sessione");
-    Console.WriteLine("6/m  impostazioni maiuscole/minuscole");
-    Console.WriteLine("7/e  escludi cartelle");
-    Console.WriteLine("8/p  override percorso");
-    Console.WriteLine("0    esegui conteggio");
-    Console.WriteLine("q    esci");
+    Console.WriteLine("   cambia filtro");
+    Console.WriteLine("   impostazioni ricorsività");
+    Console.WriteLine("   conteggia commenti");
+    Console.WriteLine("   filtra righe vuote");
+    Console.WriteLine("   azzera conteggi per ogni sessione");
+    Console.WriteLine("   impostazioni maiuscole/minuscole");
+    Console.WriteLine("   escludi cartelle");
+    Console.WriteLine("   override percorso");
+    Console.WriteLine("   esegui conteggio");
+    Console.WriteLine("   esci");
 }
 
 void ChoiceFilter()
@@ -254,21 +416,20 @@ static int ConsumeFile(SearchFlags state, LinkedList<string> readFileErr, string
 static Regex CreateRxFileEnum(string pattern, bool isCaseSensitive)
     => new(pattern, RegexOptions.ECMAScript | RegexOptions.Compiled | (isCaseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase));
 
-bool TryChoice()
+bool TryChoice(MenuAction action)
 {
-    switch (menuChoiceResp)
+    switch (action)
     {
-        case "1": case "f": case "F": ChoiceFilter(); break;
-        case "2": case "r": case "R": ChoiceFileRecursion(); break;
-        case "3": case "c": case "C": ChoiceComments(); break;
-        case "4": case "v": case "V": ChoiceEmptyLines(); break;
-        case "5": case "z": case "Z": ChoiceResetState(); break;
-        case "6": case "m": case "M": ChoiceCaseSensitivity(); break;
-        case "7": case "e": case "E": ChoiceExcludePath(); break;
-        case "8": case "p": case "P": ChoiceOverridePath(); break;
-        case "0": Execute(); break;
-        case "q": break;
-        default: return false;
+        case MenuAction.SetFilter: ChoiceFilter(); break;
+        case MenuAction.SetRecursion: ChoiceFileRecursion(); break;
+        case MenuAction.SetComments: ChoiceComments(); break;
+        case MenuAction.SetEmptyLines: ChoiceEmptyLines(); break;
+        case MenuAction.ResetState: ChoiceResetState(); break;
+        case MenuAction.SetCaseSensitivity: ChoiceCaseSensitivity(); break;
+        case MenuAction.SetExcludePath: ChoiceExcludePath(); break;
+        case MenuAction.SetOverridePath: ChoiceOverridePath(); break;
+        case MenuAction.Execute: Execute(); break;
+        case MenuAction.Exit: break;
     }
     return true;
 }
@@ -285,3 +446,8 @@ record struct SearchFlags(
     string EnumPath);
 record struct SessionResults(int TotFoundLines, int TotEnumeratedFiles, int FileCount, Top10Record[] Top10);
 record struct Top10Record(string FileNamePath, int LineCount);
+enum ReadState { Initial, VtEscape, VtBracket, VtNonBracket }
+record struct StdinValue(bool IsMeta, char Input, ConsoleKey Meta);
+enum CursorDirection { Init, Up, Down, PageUp, PageDown, Start, End }
+record struct CursorState(int X, int Y, int MaxY);
+enum MenuAction { SetFilter, SetRecursion, SetComments, SetEmptyLines, ResetState, SetCaseSensitivity, SetExcludePath, SetOverridePath, Execute, Exit, None }
