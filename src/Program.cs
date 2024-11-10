@@ -1,14 +1,13 @@
 ﻿using contarighe;
-using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Windows.Win32.System.Console;
 
 SessionResults results = new(0, 0, 0, new Top10Record[10]);
 SearchFlags state = new(true, false, false, false, false, "\\.cs$", null, Directory.GetCurrentDirectory());
+CursorState MoveCursor_State = new(0, 1, 10);
 
 var rxFileEnum = CreateRxFileEnum(state.EnumFileFilter, state.IsFileEnumCaseSensitive);
 var rxPathExclide = (Regex?)null;
-string? menuChoiceResp = "";
 
 Console.CursorVisible = false;
 var consoleHandle = Windows.Win32.PInvoke.GetStdHandle_SafeHandle(STD_HANDLE.STD_INPUT_HANDLE);
@@ -17,9 +16,8 @@ var scmSucc = Windows.Win32.PInvoke.SetConsoleMode(consoleHandle, CONSOLE_MODE.E
 if (scmSucc == false) throw new Exception();
 //var gcmSucc = Windows.Win32.PInvoke.GetConsoleMode(consoleHandle, out var consoleMode);
 
-CursorState MoveCursor_State = new(0, 1, 10);
-
 var printMenu = true;
+var action = MenuAction.None;
 do
 {
     if (printMenu)
@@ -30,37 +28,40 @@ do
     }
 
     var kp = ReadInput();
-    menuChoiceResp = kp.Input.ToString();
 
     switch (kp.Meta)
     {
         case ConsoleKey.DownArrow: MoveCursor(CursorDirection.Down); break;
-        case ConsoleKey.UpArrow: MoveCursor(CursorDirection.Up); break;
+        case ConsoleKey.End: MoveCursor(CursorDirection.End); break;
+        case ConsoleKey.Home: MoveCursor(CursorDirection.Start); break;
         case ConsoleKey.PageDown: MoveCursor(CursorDirection.PageDown); break;
         case ConsoleKey.PageUp: MoveCursor(CursorDirection.PageUp); break;
-        case ConsoleKey.Enter: TryChoice(MapChoiceToAction(MoveCursor_State.Y, menuChoiceResp)); break;
-        case ConsoleKey.Home: MoveCursor(CursorDirection.Start); break;
-        case ConsoleKey.End: MoveCursor(CursorDirection.End); break;
+        case ConsoleKey.UpArrow: MoveCursor(CursorDirection.Up); break;
+
+        default:
+            action = MapChoiceToAction(MoveCursor_State.Y, kp.Input, kp.Meta);
+            if (action != MenuAction.Exit && action != MenuAction.None) TryChoice(action);
+            break;
     }
 }
-while (menuChoiceResp != "q");
+while (action != MenuAction.Exit);
 
-MenuAction MapChoiceToAction(int cursorY, string menuChoiceResp)
+MenuAction MapChoiceToAction(int cursorY, char menuChoiceResp, ConsoleKey meta)
 {
-    switch (null)
+    return (cursorY, menuChoiceResp, meta) switch
     {
-        case 1: case "1": case "f": case "F": return MenuAction.SetFilter;
-        case 2: case "2": case "r": case "R": return MenuAction.SetRecursion;
-        case 3: case "3": case "c": case "C": return MenuAction.SetComments;
-        case 4: case "4": case "v": case "V": return MenuAction.SetEmptyLines;
-        case 5: case "5": case "z": case "Z": return MenuAction.ResetState;
-        case 6: case "6": case "m": case "M": return MenuAction.SetCaseSensitivity;
-        case 7: case "7": case "e": case "E": return MenuAction.SetExcludePath;
-        case 8: case "8": case "p": case "P": return MenuAction.SetOverridePath;
-        case 0: case "0": return MenuAction.Execute;
-        case "q": return MenuAction.Exit;
-        default: return MenuAction.None;
-    }
+        (1, _, ConsoleKey.Enter) or (_, '1', _) or (_, 'f', _) or (_, 'F', _) => MenuAction.SetFilter,
+        (2, _, ConsoleKey.Enter) or (_, '2', _) or (_, 'r', _) or (_, 'R', _) => MenuAction.SetRecursion,
+        (3, _, ConsoleKey.Enter) or (_, '3', _) or (_, 'c', _) or (_, 'C', _) => MenuAction.SetComments,
+        (4, _, ConsoleKey.Enter) or (_, '4', _) or (_, 'v', _) or (_, 'V', _) => MenuAction.SetEmptyLines,
+        (5, _, ConsoleKey.Enter) or (_, '5', _) or (_, 'z', _) or (_, 'Z', _) => MenuAction.ResetState,
+        (6, _, ConsoleKey.Enter) or (_, '6', _) or (_, 'm', _) or (_, 'M', _) => MenuAction.SetCaseSensitivity,
+        (7, _, ConsoleKey.Enter) or (_, '7', _) or (_, 'e', _) or (_, 'E', _) => MenuAction.SetExcludePath,
+        (8, _, ConsoleKey.Enter) or (_, '8', _) or (_, 'p', _) or (_, 'P', _) => MenuAction.SetOverridePath,
+        (9, _, ConsoleKey.Enter) or (_, '0', _) => MenuAction.Execute,
+        (10, _, ConsoleKey.Enter) or (_, 'q', _) => MenuAction.Exit,
+        _ => MenuAction.None,
+    };
 }
 
 void MoveCursor(CursorDirection direction)
@@ -130,6 +131,14 @@ void MoveCursor(CursorDirection direction)
     }
 }
 
+bool AnyOtherInput()
+{
+    var data = new INPUT_RECORD[9];
+    var succ = Windows.Win32.PInvoke.PeekConsoleInput(consoleHandle, data, out var nEvents);
+    var keydata = data.Where(_ => _.EventType == 1);
+    return keydata.Any();
+}
+
 StdinValue ReadInput()
 {
     var state = ReadState.Initial;
@@ -137,18 +146,25 @@ StdinValue ReadInput()
 
     do
     {
-        // BUG se premo escape finisce in VtEscape e non esce; dovrei considerare lunghezza buffer?
         var kp = Console.ReadKey(true);
         switch (state)
         {
             case ReadState.Initial:
                 if (kp.KeyChar == '\x1b')
                 {
-                    state = ReadState.VtEscape;
+                    if (AnyOtherInput())
+                        state = ReadState.VtEscape;
+                    else
+                        parsed = new(true, default, ConsoleKey.Escape);
                 }
                 else
                 {
-                    parsed = new(false, kp.KeyChar, 0);
+                    (state, parsed) = kp.KeyChar switch
+                    {
+                        '\r' => (ReadState.Initial, new StdinValue(true, kp.KeyChar, ConsoleKey.Enter)),
+                        ' ' => (ReadState.Initial, new StdinValue(true, kp.KeyChar, ConsoleKey.Spacebar)),
+                        '\n' => (ReadState.Initial, new StdinValue(true, kp.KeyChar, ConsoleKey.Enter)),
+                    };
                 }
                 break;
 
@@ -161,19 +177,27 @@ StdinValue ReadInput()
                 break;
 
             case ReadState.VtBracket:
-                state = ReadState.Initial;
-                parsed = kp.KeyChar switch
+                (state, parsed) = kp.KeyChar switch
                 {
-                    'A' => new(true, default, ConsoleKey.UpArrow),
-                    'B' => new(true, default, ConsoleKey.DownArrow),
-                    'C' => new(true, default, ConsoleKey.RightArrow),
-                    'D' => new(true, default, ConsoleKey.LeftArrow),
-                    '6' => new(true, default, ConsoleKey.PageDown), // TODO 6 ~
-                    '5' => new(true, default, ConsoleKey.PageUp), // TODO 5 ~
-                    'H' => new(true, default, ConsoleKey.Home),
-                    'F' => new(true, default, ConsoleKey.End),
-                    _ => throw new System.Diagnostics.UnreachableException(),
+                    'A' => (ReadState.Initial, new StdinValue(true, default, ConsoleKey.UpArrow)),
+                    'B' => (ReadState.Initial, new StdinValue(true, default, ConsoleKey.DownArrow)),
+                    'C' => (ReadState.Initial, new StdinValue(true, default, ConsoleKey.RightArrow)),
+                    'D' => (ReadState.Initial, new StdinValue(true, default, ConsoleKey.LeftArrow)),
+                    '6' => (ReadState._3CharSequence, new(true, default, ConsoleKey.PageDown)),
+                    '5' => (ReadState._3CharSequence, new(true, default, ConsoleKey.PageUp)),
+                    'H' => (ReadState.Initial, new StdinValue(true, default, ConsoleKey.Home)),
+                    'F' => (ReadState.Initial, new StdinValue(true, default, ConsoleKey.End)),
+                    _ => throw new NotImplementedException(),
                 };
+                break;
+
+            case ReadState._3CharSequence:
+                state = ReadState.Initial;
+                switch (kp.KeyChar)
+                {
+                    case '~': break;
+                    default: throw new NotImplementedException();
+                }
                 break;
         }
     }
@@ -446,7 +470,7 @@ record struct SearchFlags(
     string EnumPath);
 record struct SessionResults(int TotFoundLines, int TotEnumeratedFiles, int FileCount, Top10Record[] Top10);
 record struct Top10Record(string FileNamePath, int LineCount);
-enum ReadState { Initial, VtEscape, VtBracket, VtNonBracket }
+enum ReadState { Initial, VtEscape, VtBracket, VtNonBracket, _3CharSequence }
 record struct StdinValue(bool IsMeta, char Input, ConsoleKey Meta);
 enum CursorDirection { Init, Up, Down, PageUp, PageDown, Start, End }
 record struct CursorState(int X, int Y, int MaxY);

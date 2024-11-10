@@ -1,4 +1,5 @@
 GetConsoleMode
 GetStdHandle
+PeekConsoleInput
 ReadConsoleInput
 SetConsoleMode
