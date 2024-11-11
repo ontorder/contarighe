@@ -164,6 +164,7 @@ StdinValue ReadInput()
                         '\r' => (ReadState.Initial, new StdinValue(true, kp.KeyChar, ConsoleKey.Enter)),
                         ' ' => (ReadState.Initial, new StdinValue(true, kp.KeyChar, ConsoleKey.Spacebar)),
                         '\n' => (ReadState.Initial, new StdinValue(true, kp.KeyChar, ConsoleKey.Enter)),
+                        _ => (ReadState.Initial, new StdinValue(false, kp.KeyChar, default))
                     };
                 }
                 break;
@@ -440,7 +441,7 @@ static int ConsumeFile(SearchFlags state, LinkedList<string> readFileErr, string
 static Regex CreateRxFileEnum(string pattern, bool isCaseSensitive)
     => new(pattern, RegexOptions.ECMAScript | RegexOptions.Compiled | (isCaseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase));
 
-bool TryChoice(MenuAction action)
+void TryChoice(MenuAction action)
 {
     switch (action)
     {
@@ -453,9 +454,7 @@ bool TryChoice(MenuAction action)
         case MenuAction.SetExcludePath: ChoiceExcludePath(); break;
         case MenuAction.SetOverridePath: ChoiceOverridePath(); break;
         case MenuAction.Execute: Execute(); break;
-        case MenuAction.Exit: break;
     }
-    return true;
 }
 
 delegate string _fd_strstr(string _s);
