@@ -28,6 +28,7 @@ do
     }
 
     var kp = ReadInput();
+    if (kp.IsErr) continue;
 
     switch (kp.Meta)
     {
@@ -135,7 +136,7 @@ bool AnyOtherInput()
 {
     var data = new INPUT_RECORD[9];
     var succ = Windows.Win32.PInvoke.PeekConsoleInput(consoleHandle, data, out var nEvents);
-    var keydata = data.Where(_ => _.EventType == 1);
+    var keydata = data.Where(static _ => _.EventType == 1);
     return keydata.Any();
 }
 
@@ -153,21 +154,20 @@ StdinValue ReadInput()
                 if (kp.KeyChar == '\x1b')
                 {
                     if (AnyOtherInput())
-                        state = ReadState.VtEscape;
-                    else
-                        parsed = new(true, default, ConsoleKey.Escape);
-                }
-                else
-                {
-                    (state, parsed) = kp.KeyChar switch
                     {
-                        '\r' => (ReadState.Initial, new StdinValue(true, kp.KeyChar, ConsoleKey.Enter)),
-                        ' ' => (ReadState.Initial, new StdinValue(true, kp.KeyChar, ConsoleKey.Spacebar)),
-                        '\n' => (ReadState.Initial, new StdinValue(true, kp.KeyChar, ConsoleKey.Enter)),
-                        _ => (ReadState.Initial, new StdinValue(false, kp.KeyChar, default))
-                    };
+                        state = ReadState.VtEscape;
+                        break;
+                    }
+                    return new(IsErr: false, default, ConsoleKey.Escape);
                 }
-                break;
+
+                return kp.KeyChar switch
+                {
+                    '\r' => new(IsErr: false, kp.KeyChar, ConsoleKey.Enter),
+                    ' ' => new(IsErr: false, kp.KeyChar, ConsoleKey.Spacebar),
+                    '\n' => new(IsErr: false, kp.KeyChar, ConsoleKey.Enter),
+                    _ => new(IsErr: false, kp.KeyChar, default)
+                };
 
             case ReadState.VtEscape:
                 state = kp.KeyChar switch
@@ -180,15 +180,15 @@ StdinValue ReadInput()
             case ReadState.VtBracket:
                 (state, parsed) = kp.KeyChar switch
                 {
-                    'A' => (ReadState.Initial, new StdinValue(true, default, ConsoleKey.UpArrow)),
-                    'B' => (ReadState.Initial, new StdinValue(true, default, ConsoleKey.DownArrow)),
-                    'C' => (ReadState.Initial, new StdinValue(true, default, ConsoleKey.RightArrow)),
-                    'D' => (ReadState.Initial, new StdinValue(true, default, ConsoleKey.LeftArrow)),
-                    '6' => (ReadState._3CharSequence, new(true, default, ConsoleKey.PageDown)),
-                    '5' => (ReadState._3CharSequence, new(true, default, ConsoleKey.PageUp)),
-                    'H' => (ReadState.Initial, new StdinValue(true, default, ConsoleKey.Home)),
-                    'F' => (ReadState.Initial, new StdinValue(true, default, ConsoleKey.End)),
-                    _ => throw new NotImplementedException(),
+                    '5' => (ReadState._3CharSequence, new(IsErr: false, default, ConsoleKey.PageUp)),
+                    '6' => (ReadState._3CharSequence, new(IsErr: false, default, ConsoleKey.PageDown)),
+                    'A' => (ReadState.Initial, new StdinValue(IsErr: false, default, ConsoleKey.UpArrow)),
+                    'B' => (ReadState.Initial, new StdinValue(IsErr: false, default, ConsoleKey.DownArrow)),
+                    'C' => (ReadState.Initial, new StdinValue(IsErr: false, default, ConsoleKey.RightArrow)),
+                    'D' => (ReadState.Initial, new StdinValue(IsErr: false, default, ConsoleKey.LeftArrow)),
+                    'F' => (ReadState.Initial, new StdinValue(IsErr: false, default, ConsoleKey.End)),
+                    'H' => (ReadState.Initial, new StdinValue(IsErr: false, default, ConsoleKey.Home)),
+                    _ => (ReadState.Initial, new StdinValue(IsErr: true, default, ConsoleKey.None))
                 };
                 break;
 
@@ -197,7 +197,7 @@ StdinValue ReadInput()
                 switch (kp.KeyChar)
                 {
                     case '~': break;
-                    default: throw new NotImplementedException();
+                    default: return new(IsErr: true, default, ConsoleKey.None);
                 }
                 break;
         }
@@ -441,6 +441,7 @@ static int ConsumeFile(SearchFlags state, LinkedList<string> readFileErr, string
 static Regex CreateRxFileEnum(string pattern, bool isCaseSensitive)
     => new(pattern, RegexOptions.ECMAScript | RegexOptions.Compiled | (isCaseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase));
 
+// TODO serve fare un layout per scrivere "textbox" di varie impostazioni
 void TryChoice(MenuAction action)
 {
     switch (action)
@@ -470,7 +471,7 @@ record struct SearchFlags(
 record struct SessionResults(int TotFoundLines, int TotEnumeratedFiles, int FileCount, Top10Record[] Top10);
 record struct Top10Record(string FileNamePath, int LineCount);
 enum ReadState { Initial, VtEscape, VtBracket, VtNonBracket, _3CharSequence }
-record struct StdinValue(bool IsMeta, char Input, ConsoleKey Meta);
+record struct StdinValue(bool IsErr, char Input, ConsoleKey Meta);
 enum CursorDirection { Init, Up, Down, PageUp, PageDown, Start, End }
 record struct CursorState(int X, int Y, int MaxY);
 enum MenuAction { SetFilter, SetRecursion, SetComments, SetEmptyLines, ResetState, SetCaseSensitivity, SetExcludePath, SetOverridePath, Execute, Exit, None }
